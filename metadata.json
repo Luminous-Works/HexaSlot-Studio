@@ -1,0 +1,8 @@
+{
+  "name": "HexaSlot Studio",
+  "description": "MPC Live III 16-slot insert expander, real-time synth & generative sequencer prototype, and Open MPC cloud release workbench.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
