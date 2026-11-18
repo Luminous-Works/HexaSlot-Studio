@@ -1,56 +1,87 @@
-# HexaSlot Studio — Lumina Aerospace
+# HexaSlot 16 — 16-slot modular insert expander & generative synth for the Akai MPC
 
-**HexaSlot 16** (`HexaSlot Studio`) is a native **Akai MPC VST2 plugin architecture** and **Open MPC Cloud SDK Studio** built by **Lumina Aerospace** for **Akai MPC OS 3.10.1+** and **MPC Live III** (`Gen2 RK3588 aarch64` + `Gen1 armv7`) using the [Open MPC](https://open-mpc.github.io/workflow.html) toolchain.
+![HexaSlot 16 — 16-Slot Insert Expander](docs/screenshots/01_hexaslot_rack.png)
 
-> **Target Hardware Architecture:** On MPC Live III (`RK3588 aarch64`) and Gen1 MPCs (`armv7`), **HexaSlot 16** runs as a **native compiled C/C++ Linux VST2 shared library (`.so`)** rendering `44.1 kHz / 128-frame` blocks inside MPC OS 3.10.1+. The studio interface in `src/` provides an interactive real-time preview designer for configuring 16-slot chains, testing synth patches, mapping MPC hardware controls, and exporting the native C/Open MPC SDK build bundle.
-
----
-
-## Native MPC Live III Plugin Architecture
-
-### 1. 16-Slot Insert Expander (`hexaslot_16.so`)
-- **4-to-16 Channel Expansion:** Loads as a single native VST2 Effect in **Slot 1 of 4** on any MPC track and expands it internally into **16 serial DSP slots** mapped across **Q-Link Bank A (Slots 01–08)** and **Q-Link Bank B (Slots 09–16)**.
-- **Real-Time C DSP Chain (`src/engine.c`):** Zero heap allocation, zero `dlopen()`, and zero disk I/O inside `mpc_engine_render()`. Supports 12 modular processors (Resonant Ladder Filter, Reel Tape Saturator, Stereo BBD Echo, Dense Hall Reverb, SP-1200 Decimator, Bus VCA Compressor, Juno-Style Chorus, 3-Band Sculpt EQ, West-Coast Wavefolder, Carrier Ring Modulator, Haas Stereo Imager, and Tuned Comb Resonator).
-- **MPC Project State & Touchscreen Skin:** Configured with `STATE_MAX = 65536` for `.xpj` state recall, `HAS_DISPLAY_REV = 1` / `DISPLAY_REV_NO_UPDATE = 1` so live slot level meters don't dismiss popup menus, and a 2×8 Q-Link `layout.conf` skin.
-- **16 Chain Presets & Quick Slot Configuration:** Switch between 16 factory multi-slot chains or capture (`Alt+C`) and restore (`Alt+R`) a temporary 16-slot layout snapshot.
-
-### 2. Synth Engine, Euclidean Sequencer & Hardware MIDI Mapping
-- **Dual-Oscillator + Sub + Resonant Filter Prototype:** Includes **18 studio synth presets** (compiled as static `const struct` lookup tables in C for real-time preset switching with zero disk I/O), `SAMPLE_ACCURATE=1` in-block note timing, and a 16-pad velocity trigger grid.
-- **4-Lane Generative Euclidean Sequencer:** Bjorklund pattern generator with concentric visual wheel, per-lane Steps, Pulses, Rotation, Probability, Scale Quantizer, and MPC Swing. Because MPC's JUCE host ignores VST MIDI output, standalone generative sequencers open an independent **ALSA Virtual MIDI** port selectable under `Preferences → MIDI`.
-- **MPC Live III MIDI Mapping & Active Mapping Overlay (`Alt+M`):** Right-click any synth parameter or sequencer lane control to bind it to MPC Live III Q-Link Banks A–D (`CC 16–31`), Touch Strip (`CC 1`), XYFX, or Data Dial via Web MIDI Learn or direct assignment.
-
-### 3. Global Command History Buffer (`Ctrl/Cmd+Z` & `Ctrl/Cmd+Shift+Z`)
-- 60-step Undo/Redo history spanning the 16-slot Rack, Synth/Sequencer parameters, and MIDI mappings with continuous-drag coalescing and direct timeline jump navigation.
-
-### 4. Open MPC Cloud Build & Release (`Cloud SDK Export`)
-- Generates `vst/vst.json`, `vst/params.json`, `vst/layout.conf`, `src/engine.c`, `catalog/plugins/hexaslot-16.json`, and `.github/workflows/mpc-release.yml` synced directly to your rack layout.
-- Cross-compiles `aarch64` (Gen2 MPC Live III) and `armv7` (Gen1) `.so` binaries inside Open MPC's Docker containers (`arm64v8/gcc:12-bookworm` & `arm32v7/gcc:11-bullseye`) with offline ASan/UBSan host tests.
+**Lumina Aerospace LLC.** A native MPC OS plugin and touchscreen workstation combining a **16-slot modular channel insert expander**, a **real-time dual-oscillator synthesizer**, and a **4-lane generative Euclidean sequencer** with **16 factory insert chains** and **18 studio synth programs**.
 
 ---
 
-## Plugin Screenshots & Open MPC Checklist
+## Architecture & Features
 
-Before submitting to the [Open MPC Catalog](https://github.com/open-mpc/mpc-vst-plugins):
-1. Render clean touchscreen skin screenshots from your `layout.conf` using Open MPC's Skin Studio (`"$MPC_VST/tools/studio.py" preview "build/skin/<vendor> - VST - <Name>/Plugin Skins" -o page_%d.png`) and place only plugin-specific screenshots inside `screenshots/`.
-2. Never commit desktop/browser screenshots or `public/assets/aistudio/` attachments.
-3. Push a version tag (`git tag v1.0.0 && git push --tags`) to build and package release `.zip` artifacts for `aarch64` and `armv7`.
+- **4-to-16 channel insert expansion:** Occupies a single insert slot (`Slot 1 of 4`) and expands it into **16 serial modular DSP slots** paged across **Q-Link Bank A (Slots 01–08)** and **Q-Link Bank B (Slots 09–16)** with real-time per-slot signal level metering.
+- **12 modular DSP processors:** Resonant Ladder Filter, Reel Tape Saturator, Stereo BBD Echo, Dense Hall Reverb, SP-1200 Decimator, Bus VCA Compressor, Juno-Style Chorus, 3-Band Sculpt EQ, West-Coast Wavefolder, Carrier Ring Modulator, Haas Stereo Imager, and Tuned Comb Resonator.
+- **Quick Slot Configuration (`Alt+C` / `Alt+R`):** Capture the current 16-slot rack layout into a temporary buffer and restore it in one click for instant A/B comparisons.
+- **Real-time dual-oscillator + sub synth:** Sample-accurate (`SAMPLE_ACCURATE=1`) subtractive engine with pre-filter drive, ADSR envelope, resonant filter, and a 16-pad velocity trigger grid.
+- **4-lane generative Euclidean sequencer:** Bjorklund pattern generator with concentric geometry wheel, Steps, Pulses, Rotation, Probability, Scale Quantizer, Swing, and independent **ALSA Virtual MIDI** port output.
+- **Hardware MIDI mapping & active overlay (`Alt+M`):** Right-click any synth parameter or sequencer lane control to bind Q-Link Banks A–D (`CC 16–31`), Touch Strip (`CC 1`), XYFX, or Data Dial via MIDI Learn or direct assignment.
+- **Global 60-step command history (`Ctrl+Z` / `Ctrl+Shift+Z`):** Unified Undo/Redo timeline across the 16-slot Rack, Synth, Sequencer, and MIDI mappings.
 
 ---
 
-## Local Studio UI Development
+## The factory library
+
+![HexaSlot 16 — Real-Time Synth & Generative Euclidean Sequencer](docs/screenshots/02_synth_sequencer.png)
+
+**16 multi-slot insert chains** covering dub stacks, 12-bit boom-bap grit, West-Coast wavefolding, Detroit techno bus glue, cassette drift, Berlin sequencer rigs, UK garage transient shaping, industrial ring matrices, neo-soul silk, ambient shimmer halls, acid 303 saturation, mastering chains, sub-bass sculpting, glitch combs, wide synthwave chorusing, and full 16-slot cascades.
+
+**18 studio synth programs** compiled for instant zero-I/O patch switching across Bass (`MPC Sub Anchor`, `SubZero Reese`, `Moog Booty Bass`, `Acid 303 Squelch`), Stabs & Keys (`Detroit Poly Stab`, `Warm Juno Brass`, `Lo-Fi Keys Wobble`, `UKG Organ Donk`, `Dub Chord Echo`), Plucks, Arps & Leads (`West-Coast Pluck`, `Glass Bell Tone`, `Berlin Arp Pulse`, `Hyper Saw Lead`, `Karplus Kalimba`, `Industrial Buzz Lead`), and Pads (`Dusty Tape Pad`, `Velvet String Pad`, `Celestial Drone Pad`).
+
+![HexaSlot 16 — Hardware MIDI Mapping & Active Overlay](docs/screenshots/03_midi_mapping.png)
+
+---
+
+## Install
+
+Unzip the release and copy the folder `Lumina Aerospace LLC - VST - HexaSlot 16` into `VST2 Plugins` on the MPC's drive. The release archive targets both **Gen2 (`aarch64` — MPC Live III / XL / One G2)** and **Gen1 (`armv7` — MPC Live II / One / X / Force)**.
+
+Third-party plugins need **MPC OS 3.10.1** or later, and **Preferences → Enhancements (Beta) → Enable Enhancements** and **External Plugin Support** both switched on.
+
+---
+
+## Files
+
+```text
+docs/screenshots/     plugin UI screens (rack, synth & sequencer, MIDI mapping)
+src/                  workstation UI, DSP catalog, Open MPC manifest & C engine generator
+index.html            application entry point
+package.json          Node/Vite workspace manifest
+LICENSE               MIT license
+```
+
+Generated Open MPC release bundle files (via **Cloud SDK Export**):
+- `vst/vst.json` (`STATE_MAX = 65536`, `HAS_DISPLAY_REV = 1`, `DISPLAY_REV_NO_UPDATE = 1`)
+- `vst/params.json` (append-only Bank 1 & Bank 2 Q-Link parameter layout)
+- `vst/layout.conf` (2×8 Q-Link touchscreen skin layout)
+- `src/engine.c` (`mpc_engine_render` 44.1 kHz / 128-frame serial C DSP chain)
+- `.github/workflows/mpc-release.yml` (Docker `armv7` & `aarch64` build + ASan/UBSan test pipeline)
+
+---
+
+## Build
+
+Export the Open MPC bundle from **Cloud SDK Export**, then build via the [Open MPC](https://open-mpc.github.io/workflow.html) toolchain (`arm64v8/gcc:12-bookworm` & `arm32v7/gcc:11-bullseye`):
+
+```bash
+export MPC_VST="/path/to/mpc-vst-plugins"
+"$MPC_VST/tools/build_port.sh" vst/vst.json aarch64
+"$MPC_VST/tools/test_port.sh" vst/vst.json aarch64
+python3 "$MPC_VST/tools/release.py" vst/vst.json --arch aarch64 --out dist/
+```
+
+Local workstation UI build:
 
 ```bash
 npm install
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
-```bash
 npm run lint
 npm run build
 ```
 
 ---
 
-© Lumina Aerospace
+## License
+
+MIT, Copyright (c) 2026 Lumina Aerospace LLC. See `LICENSE`.
+
+## Contact
+
+Lumina Aerospace LLC — owner@luminousworksllc.com
