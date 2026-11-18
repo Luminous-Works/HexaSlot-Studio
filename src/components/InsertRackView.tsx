@@ -300,7 +300,7 @@ export const InsertRackView: React.FC<InsertRackViewProps> = ({
             <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
               <span>Master Post-Rack Output</span>
               <span className="font-mono tabular-nums text-slate-700">
-                {audioRunning ? 'AudioContext Active' : 'Standby'}
+                {audioRunning ? 'Preview Active' : 'Standby'}
               </span>
             </div>
             <OscilloscopeCanvas audioRunning={audioRunning} height={84} />

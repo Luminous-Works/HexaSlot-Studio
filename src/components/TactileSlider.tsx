@@ -52,6 +52,7 @@ export const TactileSlider: React.FC<TactileSliderProps> = ({
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
     setDragging(true);

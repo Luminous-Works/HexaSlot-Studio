@@ -31,7 +31,7 @@ export const CloudSdkExportView: React.FC<CloudSdkExportViewProps> = ({ slots, a
     vendor: 'Lumina Aerospace',
     uid: 'HX16',
     catalogId: 'hexaslot-16',
-    githubRepo: 'Luminous-Works/mpc-hexaslot-studio',
+    githubRepo: 'github.com/Luminous-Works/HexaSlot-Studio',
     includeGen1: true,
     includeGen2LiveIII: true,
     stateMaxBytes: 65536,

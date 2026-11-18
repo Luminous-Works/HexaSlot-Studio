@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { audioEngine } from './audio/dspEngine';
 import {
@@ -11,10 +11,23 @@ import {
   SYNTH_PRESETS,
 } from './data/dspCatalog';
 import {
+  createBindingFromSpec,
+  DEFAULT_MPC_MIDI_MAPPINGS,
+  resolveControlByCc,
+  ROOT_DISCRETE,
+  SCALE_DISCRETE,
+  scaleCcToTargetValue,
+  STUDIO_MPC_MIDI_MAPPINGS,
+  WAVE_DISCRETE,
+} from './data/midiCatalog';
+import {
   ChainArchitectureMode,
   DspModuleId,
   EuclideanLane,
   InsertSlotState,
+  MidiControlSpec,
+  MidiMappingBinding,
+  MidiTargetDescriptor,
   SequencerConfig,
   SynthParams,
   WorkspaceTab,
@@ -47,6 +60,7 @@ interface StudioState {
   synth: SynthParams;
   activeSynthPresetId: string;
   sequencer: SequencerConfig;
+  midiMappings: MidiMappingBinding[];
 }
 
 const INITIAL_STUDIO_STATE: StudioState = {
@@ -56,6 +70,7 @@ const INITIAL_STUDIO_STATE: StudioState = {
   synth: DEFAULT_SYNTH_PARAMS,
   activeSynthPresetId: 'mpc-sub-anchor',
   sequencer: DEFAULT_SEQUENCER_CONFIG,
+  midiMappings: DEFAULT_MPC_MIDI_MAPPINGS,
 };
 
 export default function App() {
@@ -75,11 +90,25 @@ export default function App() {
     jumpToFuture,
   } = useCommandHistory<StudioState>(INITIAL_STUDIO_STATE, 'Initial Studio Session');
 
-  const { slots, activePresetId, archMode, synth, activeSynthPresetId, sequencer } = studio;
+  const { slots, activePresetId, archMode, synth, activeSynthPresetId, sequencer, midiMappings } = studio;
 
   const [audioRunning, setAudioRunning] = useState(false);
   const [sequencerPlaying, setSequencerPlaying] = useState(false);
   const [activeStep, setActiveStep] = useState(-1);
+
+  // Web MIDI & Live Hardware CC state (transient, outside undo buffer)
+  const webMidiSupported =
+    typeof navigator !== 'undefined' && typeof navigator.requestMIDIAccess === 'function';
+  const [webMidiConnected, setWebMidiConnected] = useState(false);
+  const [midiDeviceNames, setMidiDeviceNames] = useState<string[]>([]);
+  const [learningTarget, setLearningTarget] = useState<MidiTargetDescriptor | null>(null);
+  const [liveCcMap, setLiveCcMap] = useState<Record<number, number>>({});
+
+  const studioRef = useRef(studio);
+  studioRef.current = studio;
+  const learningTargetRef = useRef<MidiTargetDescriptor | null>(null);
+  learningTargetRef.current = learningTarget;
+  const midiAccessRef = useRef<MIDIAccess | null>(null);
 
   useEffect(() => {
     audioEngine.syncRack(slots);
@@ -337,6 +366,159 @@ export default function App() {
     [commit]
   );
 
+  // MPC Live III MIDI Mapping Commands (recorded in Command History Buffer)
+  const handleBindMidi = useCallback(
+    (
+      target: MidiTargetDescriptor,
+      control: MidiControlSpec,
+      channel: number,
+      inverted: boolean
+    ) => {
+      const binding = createBindingFromSpec(target, control, channel, inverted);
+      commit(`MIDI Bind: ${control.shortLabel} → ${target.shortLabel}`, 'synth', (prev) => ({
+        ...prev,
+        midiMappings: [
+          ...prev.midiMappings.filter((m) => m.targetId !== target.id),
+          binding,
+        ],
+      }));
+    },
+    [commit]
+  );
+
+  const handleUnbindMidi = useCallback(
+    (targetId: string) => {
+      commit('Unbind MIDI Mapping', 'synth', (prev) => ({
+        ...prev,
+        midiMappings: prev.midiMappings.filter((m) => m.targetId !== targetId),
+      }));
+    },
+    [commit]
+  );
+
+  const handleToggleMidiInvert = useCallback(
+    (targetId: string) => {
+      commit('Toggle MIDI Polarity', 'synth', (prev) => ({
+        ...prev,
+        midiMappings: prev.midiMappings.map((m) =>
+          m.targetId === targetId ? { ...m, inverted: !m.inverted } : m
+        ),
+      }));
+    },
+    [commit]
+  );
+
+  const handleLoadStudioMidiTemplate = useCallback(() => {
+    commit('Load MPC Live III Studio Map', 'synth', (prev) => ({
+      ...prev,
+      midiMappings: STUDIO_MPC_MIDI_MAPPINGS,
+    }));
+  }, [commit]);
+
+  const handleClearAllMidiMappings = useCallback(() => {
+    commit('Clear All MIDI Mappings', 'synth', (prev) => ({
+      ...prev,
+      midiMappings: [],
+    }));
+  }, [commit]);
+
+  // Route incoming or simulated MIDI CC (0..127) to bound Synth & Sequencer targets
+  const applyMidiCc = useCallback(
+    (cc: number, value: number, channel = 0) => {
+      setLiveCcMap((prev) => (prev[cc] === value ? prev : { ...prev, [cc]: value }));
+      const activeBindings = studioRef.current.midiMappings.filter(
+        (b) => b.cc === cc && (b.channel === 0 || channel === 0 || b.channel === channel)
+      );
+      if (activeBindings.length === 0) return;
+
+      for (const b of activeBindings) {
+        const norm = b.inverted ? 1 - value / 127 : value / 127;
+
+        if (b.targetKind === 'synth') {
+          if (b.paramKey === 'osc1Wave' || b.paramKey === 'osc2Wave') {
+            const idx = Math.min(WAVE_DISCRETE.length - 1, Math.floor(norm * WAVE_DISCRETE.length));
+            handleUpdateSynth({ [b.paramKey]: WAVE_DISCRETE[idx] });
+          } else {
+            handleUpdateSynth({ [b.paramKey]: scaleCcToTargetValue(b, value) });
+          }
+        } else if (b.targetKind === 'sequencer') {
+          if (b.paramKey === 'scale') {
+            const idx = Math.min(SCALE_DISCRETE.length - 1, Math.floor(norm * SCALE_DISCRETE.length));
+            handleUpdateSequencer({ scale: SCALE_DISCRETE[idx] });
+          } else if (b.paramKey === 'rootMidi') {
+            const idx = Math.min(ROOT_DISCRETE.length - 1, Math.floor(norm * ROOT_DISCRETE.length));
+            handleUpdateSequencer({ rootMidi: ROOT_DISCRETE[idx] });
+          } else {
+            handleUpdateSequencer({ [b.paramKey]: scaleCcToTargetValue(b, value) });
+          }
+        } else if (b.targetKind === 'lane' && b.laneId) {
+          const lane = studioRef.current.sequencer.lanes.find((l) => l.id === b.laneId);
+          if (!lane) continue;
+          if (b.paramKey === 'muted') {
+            const muted = b.inverted ? value < 64 : value >= 64;
+            if (lane.muted !== muted) handleUpdateLane(b.laneId, { muted });
+          } else if (b.paramKey === 'steps') {
+            const nextSteps = Math.round(scaleCcToTargetValue(b, value));
+            handleUpdateLane(b.laneId, {
+              steps: nextSteps,
+              pulses: Math.min(lane.pulses, nextSteps),
+            });
+          } else if (b.paramKey === 'pulses') {
+            const nextPulses = Math.min(lane.steps, Math.round(scaleCcToTargetValue(b, value)));
+            handleUpdateLane(b.laneId, { pulses: nextPulses });
+          } else {
+            handleUpdateLane(b.laneId, { [b.paramKey]: Math.round(scaleCcToTargetValue(b, value)) });
+          }
+        }
+      }
+    },
+    [handleUpdateSynth, handleUpdateSequencer, handleUpdateLane]
+  );
+
+  const handleConnectWebMidi = useCallback(async () => {
+    if (!webMidiSupported) return;
+    try {
+      const access = await navigator.requestMIDIAccess();
+      midiAccessRef.current = access;
+
+      const wireInputs = () => {
+        const names: string[] = [];
+        access.inputs.forEach((input) => {
+          if (input.name) names.push(input.name);
+          input.onmidimessage = (evt: MIDIMessageEvent) => {
+            const data = evt.data;
+            if (!data || data.length < 3) return;
+            const status = data[0];
+            if ((status & 0xf0) === 0xb0) {
+              const ch = (status & 0x0f) + 1;
+              const cc = data[1];
+              const val = data[2];
+
+              if (learningTargetRef.current) {
+                const target = learningTargetRef.current;
+                const ctrl = resolveControlByCc(cc);
+                handleBindMidi(target, ctrl, ch, false);
+                learningTargetRef.current = null;
+                setLearningTarget(null);
+                setLiveCcMap((prev) => ({ ...prev, [cc]: val }));
+                return;
+              }
+
+              applyMidiCc(cc, val, ch);
+            }
+          };
+        });
+        setMidiDeviceNames(names);
+        setWebMidiConnected(true);
+      };
+
+      wireInputs();
+      access.onstatechange = () => wireInputs();
+    } catch {
+      setWebMidiConnected(false);
+    }
+  }, [webMidiSupported, handleBindMidi, applyMidiCc]);
+
   // Global Keyboard Shortcuts: Undo/Redo (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y) + Quick Snapshot (Alt+C / Alt+R)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -509,6 +691,20 @@ export default function App() {
                 onToggleSequencer={handleToggleAudioOrSeq}
                 activeStep={activeStep}
                 onTriggerPad={handleTriggerPad}
+                midiMappings={midiMappings}
+                liveCcMap={liveCcMap}
+                webMidiSupported={webMidiSupported}
+                webMidiConnected={webMidiConnected}
+                midiDeviceNames={midiDeviceNames}
+                learningTarget={learningTarget}
+                onSetLearningTarget={setLearningTarget}
+                onConnectWebMidi={handleConnectWebMidi}
+                onBindMidi={handleBindMidi}
+                onUnbindMidi={handleUnbindMidi}
+                onToggleMidiInvert={handleToggleMidiInvert}
+                onSimulateControlCc={(cc, val) => applyMidiCc(cc, val, 0)}
+                onLoadStudioMidiTemplate={handleLoadStudioMidiTemplate}
+                onClearAllMidiMappings={handleClearAllMidiMappings}
               />
             )}
 

@@ -112,3 +112,45 @@ export interface SynthPreset {
   summary: string;
   params: SynthParams;
 }
+
+export type MidiTargetKind = 'synth' | 'sequencer' | 'lane';
+
+export interface MidiControlSpec {
+  id: string;
+  label: string;
+  shortLabel: string;
+  group: 'Q-Link Bank A' | 'Q-Link Bank B' | 'Q-Link Bank C' | 'Q-Link Bank D' | 'Performance & Strip';
+  cc: number;
+}
+
+export interface MidiTargetDescriptor {
+  id: string;
+  kind: MidiTargetKind;
+  label: string;
+  shortLabel: string;
+  paramKey: string;
+  laneId?: string;
+  min: number;
+  max: number;
+  step: number;
+  isDiscrete?: boolean;
+  discreteOptions?: Array<string | number>;
+}
+
+export interface MidiMappingBinding {
+  targetId: string;
+  targetKind: MidiTargetKind;
+  targetLabel: string;
+  paramKey: string;
+  laneId?: string;
+  controlId: string;
+  controlLabel: string;
+  shortControlLabel: string;
+  cc: number;
+  channel: number; // 0 = Omni (All channels), 1..16
+  min: number;
+  max: number;
+  step: number;
+  inverted?: boolean;
+}
+
